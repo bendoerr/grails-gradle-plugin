@@ -15,7 +15,7 @@ class GrailsPlugin implements Plugin<Project> {
      */
     static final RUNTIME_CLASSPATH_COMMANDS = [ "RunApp", "TestApp" ] as Set
 
-    void use(Project project) {
+    void apply(Project project) {
         project.configurations {
             grails_bootstrap
             compile
@@ -45,13 +45,13 @@ class GrailsPlugin implements Plugin<Project> {
 
         // Most people are used to a "test" target or task, but Grails
         // has "test-app". So we hard-code a "test" task.
-        project.task("test") << {
+        project.task(["overwrite":true], "test") << {
             runGrailsWithProps("TestApp", project)
         }
 
         // Gradle's Java plugin provides an "assemble" task. We map that
         // to the War command here.
-        project.task("assemble") << {
+        project.task(["overwrite":true], "assemble") << {
             runGrailsWithProps("War", project)
         }
 
@@ -115,6 +115,7 @@ class GrailsPlugin implements Plugin<Project> {
         // Set up the 'grails_bootstrap' configuration so that it contains
         // all the dependencies required by the Grails build system. This
         // pretty much means everything used by the scripts too.
+		project.logger.info "Using grails version ${grailsDep.version}"
         project.dependencies {
             grails_bootstrap "org.grails:grails-bootstrap:${grailsDep.version}",
                              "org.grails:grails-scripts:${grailsDep.version}",
