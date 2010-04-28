@@ -26,7 +26,7 @@ class GrailsPlugin implements Plugin<Project> {
 
         // Provide a task that allows the user to create a fresh Grails
         // project from a basic Gradle build file.
-        project.task("init") {
+        project.task("init") << {
             // First make sure that a project version has been configured.
             if (project.version == "unspecified") {
                 throw new RuntimeException("[GrailsPlugin] Build file must specify a 'version' property.")
@@ -46,13 +46,13 @@ class GrailsPlugin implements Plugin<Project> {
 
         // Most people are used to a "test" target or task, but Grails
         // has "test-app". So we hard-code a "test" task.
-        project.task(["overwrite": true], "test") {
+        project.task(["overwrite": true], "test") << {
             runGrailsWithProps("TestApp", project)
         }
 
         // Gradle's Java plugin provides an "assemble" task. We map that
         // to the War command here.
-        project.task(["overwrite": true], "assemble") {
+        project.task(["overwrite": true], "assemble") << {
             runGrailsWithProps("War", project)
         }
 
@@ -64,7 +64,7 @@ class GrailsPlugin implements Plugin<Project> {
             if (name == "args" || name == "env") return
 
             // Add a task for the given Grails command.
-            project.task(name) {
+            project.task(name) << {
                 runGrailsWithProps(GrailsNameUtils.getNameFromScript(name), project)
             }
         }
