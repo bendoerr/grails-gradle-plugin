@@ -13,11 +13,12 @@ class GrailsPlugin implements Plugin<Project> {
      * in the Grails root loader because they are not using the runtime
      * classpath (as they are supposed to).
      */
-    static final RUNTIME_CLASSPATH_COMMANDS = [ "RunApp", "TestApp" ] as Set
+    static final RUNTIME_CLASSPATH_COMMANDS = ["RunApp", "TestApp", "GenerateAll", "PackagePlugin"] as Set
 
     void apply(Project project) {
         project.configurations {
             grails_bootstrap
+            grails_bootstrap_with_project_runtime
             compile
             runtime.extendsFrom compile
             test.extendsFrom compile
@@ -25,7 +26,7 @@ class GrailsPlugin implements Plugin<Project> {
 
         // Provide a task that allows the user to create a fresh Grails
         // project from a basic Gradle build file.
-        project.task("init") << {
+        project.task("init") {
             // First make sure that a project version has been configured.
             if (project.version == "unspecified") {
                 throw new RuntimeException("[GrailsPlugin] Build file must specify a 'version' property.")
@@ -45,25 +46,25 @@ class GrailsPlugin implements Plugin<Project> {
 
         // Most people are used to a "test" target or task, but Grails
         // has "test-app". So we hard-code a "test" task.
-        project.task(["overwrite":true], "test") << {
+        project.task(["overwrite": true], "test") {
             runGrailsWithProps("TestApp", project)
         }
 
         // Gradle's Java plugin provides an "assemble" task. We map that
         // to the War command here.
-        project.task(["overwrite":true], "assemble") << {
+        project.task(["overwrite": true], "assemble") {
             runGrailsWithProps("War", project)
         }
 
         // Convert any task executed from the command line into the
         // Grails equivalent command.
-        project.tasks.addRule("Grails command") { String name ->
+        project.tasks.addRule("Grails command") {String name ->
             // Gradle has a tendency to want to create 'args' and 'env'
             // tasks, so block it from doing so.
             if (name == "args" || name == "env") return
 
             // Add a task for the given Grails command.
-            project.task(name) << {
+            project.task(name) {
                 runGrailsWithProps(GrailsNameUtils.getNameFromScript(name), project)
             }
         }
@@ -98,41 +99,7 @@ class GrailsPlugin implements Plugin<Project> {
      * uses whatever its default environment is.
      */
     private void runGrails(String cmd, Project project, String args = null, String env = null) {
-        // Start by checking that the project has both Grails and a
-        // logging implementation as dependencies. Otherwise we fail
-        // the build.
-        def runtimeDeps = project.configurations.runtime.allDependencies
-        def grailsDep = runtimeDeps.find { it.group == 'org.grails' && it.name.startsWith('grails-') }
-        if (!grailsDep) {
-            throw new RuntimeException("[GrailsPlugin] Your project does not contain any 'grails-*' dependencies in 'compile' or 'runtime'.")
-        }
-
-        def loggingDep = runtimeDeps.find { it.group == 'org.slf4j' && it.name.startsWith('slf4j-') }
-        if (!loggingDep) {
-            throw new RuntimeException("[GrailsPlugin] Your project does not contain an SLF4J logging implementation dependency.")
-        }
-
-        // Set up the 'grails_bootstrap' configuration so that it contains
-        // all the dependencies required by the Grails build system. This
-        // pretty much means everything used by the scripts too.
-		project.logger.info "Using grails version ${grailsDep.version}"
-        project.dependencies {
-            grails_bootstrap "org.grails:grails-bootstrap:${grailsDep.version}",
-                             "org.grails:grails-scripts:${grailsDep.version}",
-                             "org.apache.ivy:ivy:2.1.0",
-                             // The Grails build system requires a logging implementation of some sort.
-                             "org.slf4j:${loggingDep.name}:${loggingDep.version}",
-                             // Not included automatically for some reason - even though they are transitive dependencies.
-                             "org.springframework:spring-core:3.0.0.RELEASE",
-                             "org.springframework:spring-beans:3.0.0.RELEASE",
-                             "org.springframework:spring-context:3.0.0.RELEASE",
-                             "org.springframework:spring-webmvc:3.0.0.RELEASE"
-
-            if (RUNTIME_CLASSPATH_COMMANDS.contains(cmd)) {
-                // Add the project's runtime dependencies to 'grails_bootstrap'.
-                grails_bootstrap project.configurations.runtime
-            }
-        }
+        setupConfigurationsOnce(project)
 
         // Add the "tools.jar" to the classpath so that the Grails
         // scripts can run native2ascii. First assume that "java.home"
@@ -154,7 +121,9 @@ class GrailsPlugin implements Plugin<Project> {
 
         // Get the 'grails_bootstrap' configuration as a list of URLs
         // and add tools.jar to it.
-        def classpath = project.configurations.grails_bootstrap.files.collect { it.toURI().toURL() }
+        def configurationToUse = RUNTIME_CLASSPATH_COMMANDS.contains(cmd) ?
+            project.configurations.grails_bootstrap_with_project_runtime : project.configurations.grails_bootstrap
+        def classpath = configurationToUse.files.collect { it.toURI().toURL() }
         classpath << toolsJar.toURI().toURL()
 
         // So we know what files are on what classpaths.
@@ -162,6 +131,7 @@ class GrailsPlugin implements Plugin<Project> {
         project.logger.info "Compile classpath:\n  ${project.configurations.compile.files.join('\n  ')}"
         project.logger.info "Test classpath:\n  ${project.configurations.test.files.join('\n  ')}"
         project.logger.info "Runtime classpath:\n  ${project.configurations.runtime.files.join('\n  ')}"
+        project.logger.into "Command to be executed $cmd with $args and env $env"
 
         // Finally, kick off Grails with the given command. GrailsBuildHelper
         // allows us to easily configure the Grails build settings and the
@@ -191,18 +161,64 @@ class GrailsPlugin implements Plugin<Project> {
         if (buildSettings.metaClass.hasProperty(buildSettings, "dependenciesExternallyConfigured")) {
             grailsHelper.dependenciesExternallyConfigured = true
         }
-        
+
         // Using a Groovy trick here, because we either want to call
         // the execute() method that takes two arguments, or the one
         // that takes three. So rather than calling those methods
         // explicitly within a condition, we create an argument list
         // and then use the spread operator.
-        def methodArgs = [ cmd, args ]
+        def methodArgs = [cmd, args]
         if (env) methodArgs << env
 
-        def retval = grailsHelper.execute(*methodArgs)
+        def retval = grailsHelper.execute(* methodArgs)
         if (retval != 0) {
             throw new RuntimeException("[GrailsPlugin] Grails returned non-zero value: " + retval);
+        }
+    }
+
+    /**
+     * Sets up the project configuration dependencies
+     * @param project The Gradle project to run Grails in.
+     */
+    private void setupConfigurationsOnce(Project project) {
+        // Only need to set the dependencies up once
+        if (project.configurations.grails_bootstrap.allDependencies.size() == 0) {
+            // Start by checking that the project has both Grails and a
+            // logging implementation as dependencies. Otherwise we fail
+            // the build.
+            def runtimeDeps = project.configurations.runtime.allDependencies
+            def grailsDep = runtimeDeps.find { it.group == 'org.grails' && it.name.startsWith('grails-') }
+            if (!grailsDep) {
+                throw new RuntimeException("[GrailsPlugin] Your project does not contain any 'grails-*' dependencies in 'compile' or 'runtime'.")
+            }
+
+            def loggingDep = runtimeDeps.find { it.group == 'org.slf4j' && it.name.startsWith('slf4j-') }
+            if (!loggingDep) {
+                throw new RuntimeException("[GrailsPlugin] Your project does not contain an SLF4J logging implementation dependency.")
+            }
+
+            // Set up the 'grails_bootstrap' configuration so that it contains
+            // all the dependencies required by the Grails build system. This
+            // pretty much means everything used by the scripts too.
+            // This configuration should happen before we need to call runGrails(),
+            // since we may want to assign task dependencies which would then cause
+            // an exception about changing configurations in a unresolved state.
+            project.logger.info "Using grails version ${grailsDep.version}"
+            project.dependencies {
+                grails_bootstrap "org.grails:grails-bootstrap:${grailsDep.version}",
+                        "org.grails:grails-scripts:${grailsDep.version}",
+                        "org.apache.ivy:ivy:2.1.0",
+                        // The Grails build system requires a logging implementation of some sort.
+                        "org.slf4j:${loggingDep.name}:${loggingDep.version}",
+                        // Not included automatically for some reason - even though they are transitive dependencies.
+                        "org.springframework:spring-core:3.0.0.RELEASE",
+                        "org.springframework:spring-beans:3.0.0.RELEASE",
+                        "org.springframework:spring-context:3.0.0.RELEASE",
+                        "org.springframework:spring-webmvc:3.0.0.RELEASE"
+
+                // Set up a configuration for commands that require the project's runtime dependencies
+                grails_bootstrap_with_project_runtime project.configurations.runtime + project.configurations.grails_bootstrap
+            }
         }
     }
 }
