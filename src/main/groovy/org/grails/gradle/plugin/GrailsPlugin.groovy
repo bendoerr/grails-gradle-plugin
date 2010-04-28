@@ -131,7 +131,7 @@ class GrailsPlugin implements Plugin<Project> {
         project.logger.info "Compile classpath:\n  ${project.configurations.compile.files.join('\n  ')}"
         project.logger.info "Test classpath:\n  ${project.configurations.test.files.join('\n  ')}"
         project.logger.info "Runtime classpath:\n  ${project.configurations.runtime.files.join('\n  ')}"
-        project.logger.into "Command to be executed $cmd with $args and env $env"
+        project.logger.info "Command to be executed $cmd with $args and env $env"
 
         // Finally, kick off Grails with the given command. GrailsBuildHelper
         // allows us to easily configure the Grails build settings and the
