@@ -13,7 +13,7 @@ class GrailsPlugin implements Plugin<Project> {
      * in the Grails root loader because they are not using the runtime
      * classpath (as they are supposed to).
      */
-    static final RUNTIME_CLASSPATH_COMMANDS = ["RunApp", "TestApp", "GenerateAll", "PackagePlugin"] as Set
+    static final RUNTIME_CLASSPATH_COMMANDS = ["RunApp", "TestApp"] as Set
 
     void apply(Project project) {
         project.configurations {
@@ -68,6 +68,21 @@ class GrailsPlugin implements Plugin<Project> {
                 runGrailsWithProps(GrailsNameUtils.getNameFromScript(name), project)
             }
         }
+
+        // A Grails project has a rather distinctive directory structure,
+        // but it is at heart a straight WAR project. This sets up the
+        // source directories.
+        project.with {
+            sourceSets {
+                main {
+                    groovy {
+                        def grailsAppDirs = file("grails-app").listFiles({f -> f.directory } as FileFilter)
+                        srcDirs grailsAppDirs, "src/groovy", "src/java"
+                    }
+                }
+            }
+        }
+
     }
 
     /**
@@ -206,15 +221,26 @@ class GrailsPlugin implements Plugin<Project> {
             project.logger.info "Using grails version ${grailsDep.version}"
             project.dependencies {
                 grails_bootstrap "org.grails:grails-bootstrap:${grailsDep.version}",
+                        "org.grails:grails-core:${grailsDep.version}",
+                        "org.grails:grails-docs:${grailsDep.version}",
+                        "org.grails:grails-resources:${grailsDep.version}",
                         "org.grails:grails-scripts:${grailsDep.version}",
-                        "org.apache.ivy:ivy:2.1.0",
-                        // The Grails build system requires a logging implementation of some sort.
-                        "org.slf4j:${loggingDep.name}:${loggingDep.version}",
-                        // Not included automatically for some reason - even though they are transitive dependencies.
-                        "org.springframework:spring-core:3.0.0.RELEASE",
-                        "org.springframework:spring-beans:3.0.0.RELEASE",
-                        "org.springframework:spring-context:3.0.0.RELEASE",
-                        "org.springframework:spring-webmvc:3.0.0.RELEASE"
+                        ":org.springframework.test:3.0.0.RELEASE",
+                        ':ant:1.7.1',
+                        ':ant-junit:1.7.1',
+                        ':ant-launcher:1.7.1',
+                        ':ant-nodeps:1.7.1',
+                        ':ant-trax:1.7.1',
+                        ':gant_groovy1.7:1.9.2',
+                        ':gpars:0.9',
+                        ':groovy-all:1.7.2',
+                        ':ivy:2.1.0',
+                        ':jline:0.9.91',
+                        ':serializer:2.7.1',
+                        ':servlet-api:2.5',
+                        "org.slf4j:slf4j-api:${loggingDep.version}",
+                        "org.slf4j:slf4j-log4j12:${loggingDep.version}",
+                        ':svnkit:1.3.1'
 
                 // Set up a configuration for commands that require the project's runtime dependencies
                 grails_bootstrap_with_project_runtime project.configurations.runtime + project.configurations.grails_bootstrap
